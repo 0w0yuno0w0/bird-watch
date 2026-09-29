@@ -14,9 +14,9 @@ html,body{margin:0;height:100%;background:#d3e9df;overflow:hidden;color:var(--fg
  font:13px/1.5 "Hiragino Sans","Yu Gothic",Meiryo,sans-serif}
 #c{position:absolute;image-rendering:pixelated;image-rendering:crisp-edges;touch-action:none}
 #bar{position:fixed;left:0;right:0;bottom:calc(10px + env(safe-area-inset-bottom,0px));display:flex;justify-content:center;gap:8px;z-index:2}
-#bar button{font:inherit;color:var(--fg);background:var(--chip);border:0;border-radius:16px;padding:6px 16px;cursor:pointer}
+#bar button{font:inherit;color:var(--fg);background:var(--chip);border:0;border-radius:16px;padding:5px 12px;font-size:12px;cursor:pointer}
 #bar button[aria-pressed="true"]{background:var(--chipon);font-weight:700}
-#tip{position:fixed;left:50%;top:calc(14px + env(safe-area-inset-top,0px));transform:translateX(-50%);z-index:2;
+#tip{position:fixed;left:50%;top:calc(52px + env(safe-area-inset-top,0px));transform:translateX(-50%);z-index:2;
  background:var(--chip);padding:6px 14px;border-radius:14px;opacity:0;transition:opacity .4s;pointer-events:none;white-space:nowrap}
 #tip.show{opacity:1}
 @media (prefers-reduced-motion:reduce){#tip{transition:none}}
@@ -41,25 +41,32 @@ html,body{margin:0;height:100%;background:#d3e9df;overflow:hidden;color:var(--fg
 .empty{font-size:15px;line-height:30px;color:#8a8f9c}
 #bookClose{font:inherit;background:#fff;border:0;border-radius:14px;padding:6px 20px;cursor:pointer;color:var(--fg)}
 @media (prefers-reduced-motion:reduce){.ch.on,#pen{transition:none}}
+#now{position:fixed;left:12px;top:calc(12px + env(safe-area-inset-top,0px));z-index:2;display:flex;gap:10px;flex-wrap:wrap;align-items:center;max-width:calc(100% - 24px);
+ background:var(--chip);padding:4px 12px;border-radius:14px;font-size:12px;min-height:26px;box-sizing:border-box}
+.nbw{display:inline-flex;align-items:center;gap:4px}.nb{width:32px;height:26px;image-rendering:pixelated}
+#bar .sz{margin-left:10px}
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
 <div id="tip"></div>
 <div id="tools">
- <button data-t="feed" aria-pressed="false">餌台</button><button data-t="water" aria-pressed="false">水場</button><button data-t="bush" aria-pressed="false">低木</button>
+ <button data-t="feed" aria-pressed="false">餌台</button><button data-t="water" aria-pressed="false">水場</button><button data-t="pond" aria-pressed="false">池</button><button data-t="bush" aria-pressed="false">低木</button>
  <button data-t="box" aria-pressed="false">巣箱</button><button data-t="post" aria-pressed="false">止まり木</button><button data-t="flower" aria-pressed="false">花壇</button>
  <button data-t="del" aria-pressed="false">撤去</button><button id="bookBtn">ノート</button>
 </div>
+<div id="now"></div>
 <div id="bar">
  <button data-s="0" aria-pressed="true">春</button><button data-s="1" aria-pressed="false">夏</button>
  <button data-s="2" aria-pressed="false">秋</button><button data-s="3" aria-pressed="false">冬</button>
+ <button class="sz" data-z="0" aria-pressed="true">標準</button><button data-z="1" aria-pressed="false">大</button><button data-z="2" aria-pressed="false">特大</button>
 </div>
 <div id="book" hidden><div class="paper" id="bookPaper"><h2>観察ノート</h2><div id="bookIn"><span id="pen">🖋️</span><div id="bookList"></div></div></div><button id="bookClose">とじる</button></div>
 <script>
 (()=>{
 'use strict';
-const W=256,H=168,N=13,OX=128,OY=40,TH=8;
+let W=256,H=168,N=13,OX=128,OY=40,sizeIdx=0,pendZ=-1;
+const TH=8,SIZES=[{W:256,H:168,N:13,OY:40},{W:320,H:204,N:17,OY:44},{W:384,H:244,N:21,OY:50}];
 const cv=document.getElementById('c'),ctx=cv.getContext('2d'),tip=document.getElementById('tip');
 const R=Math.random,rr=(a,b)=>a+R()*(b-a),cl=(v,a,b)=>v<a?a:v>b?b:v,lerp=(a,b,t)=>a+(b-a)*t;
 const hs=(x,y)=>{x|=0;y|=0;let h=(x*374761393+y*668265263)^(x*y*97);h=(h^(h>>13))*1274126177;return((h^(h>>16))>>>0)/4294967295;};
@@ -79,7 +86,7 @@ const mix=(a,b,t)=>typeof a==='number'?lerp(a,b,t):Array.isArray(a)?a.map((v,i)=
 let P=S[0],from=S[0],cur=0,tt=1,auto=true,autoT=0;
 
 // ---------- 静的レイヤー ----------
-const D=new Uint8ClampedArray(W*H*4),img=new ImageData(D,W,H);
+let D=new Uint8ClampedArray(W*H*4),img=new ImageData(D,W,H);
 const stC=document.createElement('canvas');stC.width=W;stC.height=H;const stX=stC.getContext('2d');
 function px(x,y,c){x|=0;y|=0;if(x<0||y<0||x>=W||y>=H)return;const i=(y*W+x)*4;D[i]=c[0];D[i+1]=c[1];D[i+2]=c[2];D[i+3]=255;}
 const rc=(x,y,w,h,c)=>{for(let j=0;j<h;j++)for(let i=0;i<w;i++)px(x+i,y+j,c);};
@@ -87,17 +94,26 @@ function line(x1,y1,x2,y2,c,snow){const n=Math.max(Math.abs(x2-x1),Math.abs(y2-y
  for(let i=0;i<=n;i++){const x=Math.round(lerp(x1,x2,i/n)),y=Math.round(lerp(y1,y2,i/n));px(x,y,c);if(snow)px(x,y-1,[250,252,255]);}}
 const EL=['#6b4f37','#5d432f'].map(hx),ER=['#83613f','#755636'].map(hx);
 const CB=[hx('#6a4f39'),hx('#7d5c40'),hx('#8f6b46')];
-const SH=[[4.6,4.4,3.8,2.6],[10.6,3.9,2.8,2],[12.2,10.8,2.4,1.6],[3.2,10.4,2.6,1.6],[3.2,7.2,1.4,1]];
+let SH=[];
 const shade=(gx,gy)=>{let f=1;for(const s of SH){const dx=(gx-s[0])/s[2],dy=(gy-s[1])/s[3];if(dx*dx+dy*dy<1)f*=.84;}return f;};
-const TREES=[
- {k:'B',p:proj(9.8,3.4),h:26,seed:11,cl:[[0,0,12],[-10,5,9],[10,4,9],[0,-8,8]],br:[[0,-14,-13,-23],[0,-17,12,-24],[0,-22,3,-33]]},
- {k:'A',p:proj(3.6,3.8),h:34,seed:3,cl:[[0,0,16],[-14,6,11],[13,5,12],[-5,-10,10],[8,-9,10]],br:[[0,-17,-20,-30],[0,-22,19,-32],[0,-30,-8,-42],[1,-26,11,-38]]},
- {k:'B',p:proj(11.4,10.4),h:22,seed:23,cl:[[0,0,10],[-8,4,7],[8,3,7],[0,-6,6]],br:[[0,-12,-11,-19],[0,-14,10,-20],[0,-18,2,-27]]},
- {k:'A',p:proj(2.4,9.8),h:24,seed:31,cl:[[0,0,10],[-8,4,7],[8,3,7],[0,-7,6]],br:[[0,-12,-11,-19],[0,-14,10,-20],[0,-18,2,-27]]}
-];
-const ROCK=proj(2.8,7.0),BAS=proj(7.6,8.2),FEED=proj(5.0,5.6);
-const BUSH=[proj(6.6,2.8),proj(12,6.4),proj(1.8,4.8),proj(5.4,11.4)];
-const STONES=[proj(6.0,11.0),proj(6.9,10.3),proj(7.6,11.0),proj(8.6,10.6)];
+let TREES,ROCK,STONES,TG;
+const SA={h:34,cl:[[0,0,16],[-14,6,11],[13,5,12],[-5,-10,10],[8,-9,10]],br:[[0,-17,-20,-30],[0,-22,19,-32],[0,-30,-8,-42],[1,-26,11,-38]]};
+const SB={h:26,cl:[[0,0,12],[-10,5,9],[10,4,9],[0,-8,8]],br:[[0,-14,-13,-23],[0,-17,12,-24],[0,-22,3,-33]]};
+const SC={h:22,cl:[[0,0,10],[-8,4,7],[8,3,7],[0,-6,6]],br:[[0,-12,-11,-19],[0,-14,10,-20],[0,-18,2,-27]]};
+function layout(){
+ const k=N/13,mk=(kk,gx,gy,sh,seed,h)=>({k:kk,p:proj(gx*k,gy*k),g:[gx*k,gy*k],h:h||sh.h,seed,cl:sh.cl,br:sh.br});
+ TREES=[mk('B',9.8,3.4,SB,11),mk('A',3.6,3.8,SA,3),mk('B',11.4,10.4,SC,23),mk('A',2.4,9.8,SC,31,24)];
+ if(N>=17)TREES.push(mk('A',7.3,3.2,SB,41,28),mk('B',11.8,7.0,SC,53));
+ if(N>=21)TREES.push(mk('A',6.3,7.2,SC,61,26),mk('B',11.2,6.4,SB,67,24));
+ const rg=[2.8*k,7.0*k];ROCK=proj(rg[0],rg[1]);
+ STONES=[[6,11],[6.9,10.3],[7.6,11],[8.6,10.6]].map(g=>proj(g[0]*k,g[1]*k));
+ SH=TREES.map(t=>[t.g[0]+.9,t.g[1]+.5,1.2+t.h/14,.8+t.h/22]).concat([[rg[0]+.4,rg[1]+.2,1.4,1]]);
+ TG=TREES.map(t=>t.g).concat([rg]);
+}
+function setSize(i){sizeIdx=i;const z=SIZES[i];W=z.W;H=z.H;N=z.N;OY=z.OY;OX=W/2;
+ D=new Uint8ClampedArray(W*H*4);img=new ImageData(D,W,H);stC.width=W;stC.height=H;
+ layout();items.length=0;birds.length=0;parts.length=0;rebuildPerch();resize();build();
+ document.querySelectorAll('#bar button[data-z]').forEach(b=>b.setAttribute('aria-pressed',+b.dataset.z===i?'true':'false'));}
 
 function ground(){
  const g=P.g,bg=P.bg,gg=g[2].map(v=>v*.8);
@@ -149,6 +165,8 @@ const IT={
  post:{fl:0,draw(x,y){const c=CB[0];line(x,y,x+1,y-16,c,P.sn>.5);line(x+1,y-11,x+7,y-16,c,P.sn>.5);line(x,y-7,x-5,y-12,c,P.sn>.5);rc(x-1,y-1,3,2,CB[1]);}},
  flower:{fl:1,draw(x,y){const fc=FLC[cur].map(hx);ell(x,y,10,5,(a,b,dx,dy)=>px(a,b,dx*dx+dy*dy>.72?hx('#5a3f2c'):hs(a*3,b*7)<.3?fc[Math.floor(hs(a,b*5)*3)]:hx(cur===3?'#dfe6ee':'#6f9a55')));}}
 };
+IT.pond={fl:1,draw(x,y){ell(x,y+3,28,14.5,(a,b)=>px(a,b,hx('#6f757b')));
+ ell(x,y,28,14.5,(a,b,dx,dy)=>px(a,b,hx(hs(a,b)<.1?'#8b9197':-dx*.4-dy*.6>.2?'#c2c7cb':'#a4aab0')));}};
 function objects(){
  for(const s of STONES)ell(s[0],s[1],5,2.5,(x,y,dx,dy)=>px(x,y,hx((dy<-.2?'#c9ccd0':dy<.4?'#aab0b6':'#8b9198'))));
  for(const it of items)if(IT[it.t].fl)IT[it.t].draw(it.x,it.y);
@@ -198,8 +216,8 @@ for(const k in SPX){const s=SPX[k],c=document.createElement('canvas');c.width=SW
    if(!shp(x-1,y)||!shp(x,y-1)||!shp(x+1,y)||!shp(x,y+1))m*=.7;col=col.map(v=>cl(v*m,0,255));}
   g.fillStyle='rgb('+col.map(Math.round)+')';g.fillRect(x,y,1,1);}
  s.cv=c;s.w=SW;s.h=SHT;}
-const POOL=[['mejiro','shijukara'],['shijukara'],['mejiro','joubitaki'],['joubitaki','shijukara']];
-const PREF={mejiro:{bush:3,flower:3,water:1},shijukara:{feed:3,box:3,bush:1},joubitaki:{post:3,water:2,rock:1}};
+const POOL=[[['mejiro',1],['shijukara',1]],[['shijukara',1]],[['mejiro',1],['joubitaki',1],['kamo',.5]],[['joubitaki',1],['shijukara',1],['kamo',.6],['hakucho',.2],['tsuru',.2]]];
+const PREF={mejiro:{bush:3,flower:3,water:1},shijukara:{feed:3,box:3,bush:1},joubitaki:{post:3,water:2,rock:1},kamo:{pond:3},hakucho:{pond:3},tsuru:{shore:3}};
 const PERCH=[],items=[];
 function rebuildPerch(){PERCH.length=0;
  for(const t of TREES)for(const b of t.br)PERCH.push({x:t.p[0]+b[2],y:t.p[1]+b[3],t:'tree',occ:0});
@@ -210,30 +228,57 @@ function rebuildPerch(){PERCH.length=0;
   else if(it.t==='bush')PERCH.push({x:x+(i%3-1)*3,y:y-11,t:'bush',occ:0});
   else if(it.t==='box')PERCH.push({x,y:y-29,t:'box',occ:0});
   else if(it.t==='post')PERCH.push({x:x+1,y:y-16,t:'post',occ:0});
+  else if(it.t==='pond'){for(const q of[[-10,-1],[8,3],[0,6]])PERCH.push({x:x+q[0],y:y+q[1],t:'pond',occ:0,cx:x,cy:y});
+   PERCH.push({x:x-28,y:y+1,t:'water',occ:0},{x:x+28,y:y+2,t:'water',occ:0},{x:x-33,y:y+3,t:'shore',occ:0},{x:x+33,y:y+4,t:'shore',occ:0},{x:x+4,y:y+18,t:'shore',occ:0});}
   else if(it.t==='flower')PERCH.push({x:x-6,y:y+1,t:'flower',occ:0},{x:x+6,y:y+2,t:'flower',occ:0});});}
-rebuildPerch();
 const birds=[];let bt=0,phase='quiet',phT=rr(3,6),goal=0;
 const bez=(a,b,c,t)=>[(1-t)*(1-t)*a[0]+2*(1-t)*t*b[0]+t*t*c[0],(1-t)*(1-t)*a[1]+2*(1-t)*t*b[1]+t*t*c[1]];
 function spawnBird(){
- const sp=POOL[cur][Math.floor(R()*POOL[cur].length)],pr=PREF[sp];let tot=0,pk=null,kind='ok';
- for(const p of PERCH)if(!p.occ&&(pr[p.t]||0)>=2)tot+=pr[p.t];
- if(tot>0){let r=R()*tot;for(const p of PERCH){if(p.occ||(pr[p.t]||0)<2)continue;r-=pr[p.t];if(r<=0){pk=p;break;}}}
- else{kind='look';const tr=PERCH.filter(p=>p.t==='tree'&&!p.occ);pk=tr[Math.floor(R()*tr.length)];}
+ const hasPond=items.some(i=>i.t==='pond'),cand=POOL[cur].filter(e=>hasPond||!SPX[e[0]].water);
+ if(!cand.length)return;let tw=0;for(const e of cand)tw+=e[1];let rw=R()*tw,sp=cand[0][0];for(const e of cand){rw-=e[1];if(rw<=0){sp=e[0];break;}}
+ const pr=PREF[sp];let tot=0,pk=null,kind='ok';
+ for(const p of PERCH)if(!p.occ&&(pr[p.t]||0)>=2&&okP(sp,p))tot+=pr[p.t];
+ if(tot>0){let r=R()*tot;for(const p of PERCH){if(p.occ||(pr[p.t]||0)<2||!okP(sp,p))continue;r-=pr[p.t];if(r<=0){pk=p;break;}}}
+ else{if(SPX[sp].water)return;kind='look';const tr=PERCH.filter(p=>p.t==='tree'&&!p.occ);pk=tr[Math.floor(R()*tr.length)];}
  if(!pk)return;pk.occ=1;
  const side=R()<.5?-12:W+12,p0=[side,rr(8,44)],p2=[pk.x,pk.y];
  birds.push({sp,pk,kind,st:'in',t:0,p0,p1:[(p0[0]+p2[0])/2,Math.min(p0[1],p2[1])-rr(14,30)],p2,d:1.6+Math.hypot(p2[0]-p0[0],p2[1]-p0[1])/90,x:p0[0],y:p0[1],f:side<0?1:-1,yo:0,hop:0,hopT:1});
 }
-const BIG=new Set();// 大型の鳥を追加したらここに登録すると、巣箱には入らなくなる
+function paint(w,h,parts,colf){
+ const K=Array.from({length:h},()=>Array(w).fill(null));
+ for(const p of parts){
+  if(p[0]==='e'){const[,cx,cy,rx,ry,k]=p;for(let y=0;y<h;y++)for(let x=0;x<w;x++)if(((x-cx)/rx)**2+((y-cy)/ry)**2<=1)K[y][x]=k;}
+  else{const[,x1,y1,x2,y2,r,k]=p,n=Math.max(Math.abs(x2-x1),Math.abs(y2-y1))*2||1;
+   for(let i=0;i<=n;i++){const cx=x1+(x2-x1)*i/n,cy=y1+(y2-y1)*i/n;
+    for(let y=Math.floor(cy-r);y<=cy+r;y++)for(let x=Math.floor(cx-r);x<=cx+r;x++)if(x>=0&&y>=0&&x<w&&y<h&&(x-cx)**2+(y-cy)**2<=r*r)K[y][x]=k;}}}
+ const c=document.createElement('canvas');c.width=w;c.height=h;const g=c.getContext('2d'),has=(x,y)=>x>=0&&y>=0&&x<w&&y<h&&K[y][x];
+ for(let y=0;y<h;y++)for(let x=0;x<w;x++){const k=K[y][x];if(!k)continue;let col=hx(colf(x,y,k));
+  if(k!=='beak'&&k!=='leg'){const l=cl((-(x-w*.5)*.35-(y-h*.4)*.55)/5,-1,1);let m=l>.5?1.06:l>0?1:l>-.5?.9:.8;
+   if(!has(x-1,y)||!has(x,y-1)||!has(x+1,y)||!has(x,y+1))m*=.78;col=col.map(v=>cl(v*m,0,255));}
+  g.fillStyle='rgb('+col.map(Math.round)+')';g.fillRect(x,y,1,1);}
+ return c;}
+const mkw=(cx,cy,n,d)=>{const a=[];for(let i=0;i<n;i++){const x0=cx-Math.round(i*.8)-2,x1=cx+3-(i>>1);for(let x=x0;x<=x1;x++)a.push([x,cy+d*i]);}return a;};
+SPX.kamo={n:'カモ',d:'緑の頭に白い首の輪（オス）。水に浮かんで過ごす',wing:'#8a7a66',size:'M',water:1,sink:2,w:19,h:12,fh:12,wu:mkw(7,5,6,-1),wd:mkw(7,10,4,1),
+ cv:paint(19,12,[['e',8,7.5,7,3.8,'body'],['l',1,6,0,4,1,'tail'],['e',7,6.6,4,2,'wing'],['l',12,5.2,13.2,3.2,1.5,'neck'],['e',14.2,2.7,2.5,2.2,'head'],['l',16.3,3.3,17.8,3.6,.9,'beak']],
+  (x,y,k)=>k==='beak'?'#e0c040':k==='head'?(x===15&&y===2?'#111111':'#1f6b3a'):k==='neck'?(y>=4?'#f4f4f0':'#1f6b3a'):k==='tail'?'#22222a':k==='wing'?(y===7&&x>=5&&x<=7?'#3f6fb0':'#8a7a66'):(x>=11?'#7a4a2e':x<=2?'#22222a':'#b9bcc2'))};
+SPX.hakucho={n:'ハクチョウ',d:'真っ白な体と長い首。冬に水辺へ渡ってくる（珍しい）',wing:'#eeeeee',size:'L',water:1,rare:1,sink:4,w:25,h:22,fh:22,wu:mkw(10,12,9,-1),wd:mkw(10,19,6,1),
+ cv:paint(25,22,[['e',11,16.5,10,4.6,'body'],['l',1,14,0,12,1.2,'tail'],['e',9,14.6,6,3,'wing'],['l',17,14,19,9,1.9,'neck'],['l',19,9,18,5,1.8,'neck'],['l',18,5,19,2.6,1.7,'neck'],['e',20,2.6,2.5,2,'head'],['l',22,3.2,24,4.3,1,'beak']],
+  (x,y,k)=>k==='beak'?(x<23?'#e8c040':'#222226'):k==='head'?(x===21&&y===2?'#111111':'#f6f6f6'):k==='wing'?((x+y)%4===0?'#e2e2e2':'#f2f2f2'):'#f6f6f6')};
+SPX.tsuru={n:'タンチョウ',d:'頭に赤い部分がある白い鶴。とても珍しい',wing:'#2b2b32',size:'L',water:1,rare:1,w:22,h:32,fh:22,wu:mkw(9,11,10,-1),wd:mkw(9,17,7,1),
+ cv:paint(22,32,[['e',9,13,7.5,4.6,'body'],['e',5,12.5,4.5,3,'wingb'],['e',2.5,13.5,3,2,'wingb'],['l',14.5,10,15.8,4.5,1.6,'neck'],['e',17,3.2,2.3,2.1,'head'],['l',18.8,3.6,21.2,4.2,.8,'beak'],['l',8,17,8,31,.7,'leg'],['l',11,17,11,31,.7,'leg']],
+  (x,y,k)=>k==='beak'?'#d8c890':k==='leg'?'#2b2b2b':k==='wingb'?'#2b2b32':k==='neck'?'#2a2a2e':k==='head'?(y<=2?'#d62b2b':(x===18&&y===3?'#111111':'#f4f4f2')):'#f4f4f2')};
+for(const k in SPX)SPX[k].size=SPX[k].size||'S';// 大型の鳥は size:'L' を指定する。大型は巣箱を選ばず、中にも入らない
+const okP=(sp,p)=>!(p.t==='box'&&SPX[sp].size==='L');
 function flyTo(b,pk,st){b.pk.occ=0;pk.occ=1;b.pk=pk;b.st=st;b.t=0;b.p0=[b.x,b.y];b.p2=[pk.x,pk.y];
  b.p1=[(b.x+pk.x)/2,Math.min(b.y,pk.y)-rr(8,22)];b.d=.7+Math.hypot(pk.x-b.x,pk.y-b.y)/80;b.dip=0;b.drink=0;b.enterT=0;b.yo=0;}
 function land(b){b.st='perch';b.t=0;b.x=b.p2[0];b.y=b.p2[1];b.yo=0;b.hopT=rr(.8,1.6);b.dipT=0;b.logd=0;b.dip=0;b.drink=0;b.enterT=0;
- const k=b.kind,t=b.pk.t;b.stay=k==='look'?rr(1.6,2.6):rr(5,10);
- if(k==='ok'&&b.moves===undefined)b.moves=1+Math.floor(R()*3);
+ const k=b.kind,t=b.pk.t;b.stay=k==='look'?rr(1.6,2.6):SPX[b.sp].water?rr(16,28):rr(5,10);
+ if(k==='ok'&&b.moves===undefined)b.moves=SPX[b.sp].water?0:1+Math.floor(R()*3);
  logEv(b.sp,t,k);
- if(k==='ok'&&t==='water'){b.drink=rr(2.5,4.5);let bd=1e9,cx=b.x;for(const it of items)if(it.t==='water'){const d=Math.abs(it.x-b.x)+Math.abs(it.y-b.y);if(d<bd){bd=d;cx=it.x;}}b.f=cx>b.x?1:-1;}
- if(k==='ok'&&t==='box'&&!BIG.has(b.sp))b.enterT=rr(.8,1.4);}
+ if(k==='ok'&&t==='water'){b.drink=rr(2.5,4.5);let bd=1e9,cx=b.x;for(const it of items)if(it.t==='water'||it.t==='pond'){const d=Math.abs(it.x-b.x)+Math.abs(it.y-b.y);if(d<bd){bd=d;cx=it.x;}}b.f=cx>b.x?1:-1;}
+ if(k==='ok'&&t==='box'&&SPX[b.sp].size!=='L')b.enterT=rr(.8,1.4);}
 function pickPerch(b){const pr=PREF[b.sp],c=[];let tot=0;
- for(const p of PERCH){if(p.occ||p===b.pk)continue;const w=(pr[p.t]||0)+(p.t==='tree'?.8:0);if(w<=0)continue;
+ for(const p of PERCH){if(p.occ||p===b.pk||!okP(b.sp,p))continue;const w=(pr[p.t]||0)+(p.t==='tree'?.8:0);if(w<=0)continue;
   const d=Math.hypot(p.x-b.x,p.y-b.y);if(d<18)continue;const v=w/(1+d/120);c.push([p,v]);tot+=v;}
  if(!tot)return null;let r=R()*tot;for(const q of c){r-=q[1];if(r<=0)return q[0];}return c[c.length-1][0];}
 function updBird(b,dt){
@@ -247,10 +292,10 @@ function updBird(b,dt){
   b.stay-=dt;
   if(b.enterT>0){b.enterT-=dt;if(b.enterT<=0){b.st='inside';b.inT=rr(4,8);logEv(b.sp,'box','enter');}return false;}
   if(b.drink>0){b.drink-=dt;b.dipT+=dt;const c=b.dipT%.7,a=c<.3?Math.sin(c/.3*Math.PI):0;b.dip=a;if(a>.9&&!b.logd){b.logd=1;logEv(b.sp,'water','drink');}}
-  else{b.dip=0;b.hopT-=dt;
+  else{b.dip=0;if(b.pk.t==='pond'){b.x+=b.f*5*dt;if(Math.abs(b.x-b.pk.cx)>18)b.f=b.x>b.pk.cx?-1:1;b.y=b.pk.y+Math.sin(b.t*1.4+b.pk.x)*.7;}b.hopT-=dt;
    if(b.hopT<=0){b.hopT=rr(.8,2);const t=b.pk.t;
     if((t==='feed'||t==='rock'||t==='water'||t==='flower')&&R()<.7){b.hop=.28;b.h0=b.x;b.h1=cl(b.x+(R()<.5?-1:1)*rr(3,6),b.pk.x-8,b.pk.x+8);b.f=b.h1>b.h0?1:-1;}
-    else if(R()<.5)b.f*=-1;}
+    else if(b.pk.t!=='pond'&&R()<.5)b.f*=-1;}
    if(b.hop>0){b.hop-=dt;const u=1-Math.max(0,b.hop)/.28;b.x=lerp(b.h0,b.h1,u);b.yo=-Math.sin(Math.PI*u)*3;if(b.hop<=0)b.yo=0;}}
   if(b.stay<=0){
    if(b.kind==='ok'&&b.moves>0){b.moves--;const pk=pickPerch(b);if(pk){flyTo(b,pk,'move');return false;}}
@@ -259,6 +304,7 @@ function updBird(b,dt){
  }
  return false;
 }
+const WU=[[6,2],[7,2],[5,1],[6,1],[7,1],[4,0],[5,0],[6,0],[5,-1],[6,-1],[6,-2]],WD=[[5,10],[6,10],[7,10],[4,11],[5,11],[6,11],[7,11],[5,12],[6,12],[6,13]];
 const FACE={
  mejiro:{r:['.ggg.','gwgwg','wkbkw','.gyg.','..y..'],p:{g:'#8fa53c',w:'#f6f4ea',k:'#141414',b:'#3f342c',y:'#e6d548'}},
  shijukara:{r:['.kkk.','kkkkk','kkbkk','wwkww','.wkw.'],p:{k:'#1b1b23',w:'#f7f7f2',b:'#2e2e2e'}},
@@ -269,15 +315,17 @@ function drawFace(b){const f=FACE[b.sp],cx=Math.round(b.pk.x),cy=Math.round(b.pk
 function drawBird(b){
  if(b.st==='inside'){drawFace(b);return;}
  const s=SPX[b.sp],fl=b.f<0,fly=b.st!=='perch',x0=Math.round(b.x-s.w/2),y0=Math.round(b.y-s.h+1+b.yo);
- if(!fly&&!['tree','bush','box','post'].includes(b.pk.t)){ctx.fillStyle='rgba(0,0,0,.18)';ctx.fillRect(x0+2,Math.round(b.y)+1,s.w-4,1);}
+ if(!fly&&!['tree','bush','box','post','pond'].includes(b.pk.t)){ctx.fillStyle='rgba(0,0,0,.18)';ctx.fillRect(x0+2,Math.round(b.y)+1,s.w-4,1);}
  ctx.save();ctx.translate(fl?x0+s.w:x0,y0);ctx.scale(fl?-1:1,1);
- if(fly)ctx.drawImage(s.cv,0,0,s.w,11,0,0,s.w,11);
+ if(fly){const fh=s.fh||11;ctx.drawImage(s.cv,0,0,s.w,fh,0,0,s.w,fh);}
+ else if(b.pk.t==='pond'&&s.sink)ctx.drawImage(s.cv,0,0,s.w,s.h-s.sink,0,s.sink,s.w,s.h-s.sink);
  else if(b.dip>0){const dx=Math.round(2*b.dip),dy=Math.round(3*b.dip);ctx.drawImage(s.cv,0,0,9,13,0,0,9,13);ctx.drawImage(s.cv,9,8,7,5,9,8,7,5);ctx.drawImage(s.cv,9,0,7,8,9+dx,dy,7,8);}
  else ctx.drawImage(s.cv,0,0);
  if(fly){const up=((b.t*16)|0)&1;ctx.fillStyle=s.wing;
-  const w=up?[[6,2],[7,2],[5,1],[6,1],[7,1],[4,0],[5,0],[6,0],[5,-1],[6,-1],[6,-2]]:[[5,10],[6,10],[7,10],[4,11],[5,11],[6,11],[7,11],[5,12],[6,12],[6,13]];
+  const w=up?(s.wu||WU):(s.wd||WD);
   for(const p of w)ctx.fillRect(p[0],p[1],1,1);}
  ctx.restore();
+ if(!fly&&b.pk.t==='pond'&&s.sink){ctx.fillStyle='rgba(255,255,255,.5)';ctx.fillRect(x0,Math.round(b.y),s.w,1);ctx.fillStyle='rgba(255,255,255,.25)';ctx.fillRect(x0+2,Math.round(b.y)+1,s.w-4,1);}
 }
 
 // ---------- 粒子・水 ----------
@@ -287,32 +335,41 @@ function updParts(dt){
  pa+=dt*RATE[cur];
  while(pa>=1&&parts.length<160){pa--;
   const tr=TREES[Math.floor(R()*TREES.length)];const sx=cur===3?rr(0,W):tr.p[0]+rr(-14,14),sy=cur===3?-3:tr.p[1]-tr.h+rr(-6,8);
-  parts.push({x:sx,y:sy,vx:rr(-4,4),vy:cur===3?rr(7,13):rr(9,15),ph:R()*6,t:0,ym:rr(84,152),c:PC[cur][Math.floor(R()*PC[cur].length)],l:0});}
+  parts.push({x:sx,y:sy,vx:rr(-4,4),vy:cur===3?rr(7,13):rr(9,15),ph:R()*6,t:0,ym:rr(OY+40,OY+N*8-6),c:PC[cur][Math.floor(R()*PC[cur].length)],l:0});}
  for(let i=parts.length-1;i>=0;i--){const p=parts[i];p.t+=dt;
   if(p.y<p.ym){p.x+=p.vx*dt+Math.sin(p.t*2+p.ph)*7*dt;p.y+=p.vy*dt;}else{p.l+=dt;if(p.l>.8)parts.splice(i,1);}}
 }
 function drawParts(){for(const p of parts){ctx.globalAlpha=cl(1-p.l/.8,0,1);ctx.fillStyle=p.c;ctx.fillRect(Math.round(p.x),Math.round(p.y),cur===3?1:2,1);}ctx.globalAlpha=1;}
-function drawWater(cx,cy,T){
- const w=P.sn,c1=hx('#5f9fc0'),c2=hx('#dbe8f2'),c=[0,1,2].map(i=>Math.round(lerp(c1[i],c2[i],w)));
- for(let dy=-5;dy<=5;dy++){const hw=Math.round(11*Math.sqrt(1-(dy/5.6)*(dy/5.6)));
-  ctx.fillStyle='rgb('+(c[0]-(dy>2?18:0))+','+(c[1]-(dy>2?14:0))+','+(c[2]-(dy>2?10:0))+')';ctx.fillRect(cx-hw,cy+dy,hw*2+1,1);}
+function drawWater(cx,cy,T,rx,ry){
+ const w=P.sn,c1=hx('#5f9fc0'),c2=hx('#dbe8f2'),c=[0,1,2].map(i=>Math.round(lerp(c1[i],c2[i],w))),m=Math.ceil(ry);
+ for(let dy=-m;dy<=m;dy++){const hw=Math.round(rx*Math.sqrt(Math.max(0,1-(dy/(ry+.4))**2)));
+  ctx.fillStyle='rgb('+(c[0]-(dy>ry*.4?18:0))+','+(c[1]-(dy>ry*.4?14:0))+','+(c[2]-(dy>ry*.4?10:0))+')';ctx.fillRect(cx-hw,cy+dy,hw*2+1,1);}
  ctx.fillStyle='rgba(255,255,255,.75)';
- for(let i=0;i<3;i++){const k=Math.floor(T*2+i*3),x=cx-8+Math.floor(hs(k,i+cx)*16),y=cy-3+Math.floor(hs(i,k+cy)*6);
-  if(((x-cx)/10)**2+((y-cy)/5)**2<1)ctx.fillRect(x,y,2,1);}
+ for(let i=0;i<Math.round(rx/4);i++){const k=Math.floor(T*2+i*3),x=cx-rx*.8+Math.floor(hs(k,i+cx)*rx*1.6),y=cy-ry*.6+Math.floor(hs(i,k+cy)*ry*1.2);
+  if(((x-cx)/(rx-1))**2+((y-cy)/(ry-.5))**2<1)ctx.fillRect(x,y,2,1);}
 }
 
 // ---------- 入力・ループ ----------
 function setSeason(i){from=P;cur=i;tt=0;autoT=0;
- document.querySelectorAll('#bar button').forEach(b=>b.setAttribute('aria-pressed',+b.dataset.s===i?'true':'false'));}
-document.getElementById('bar').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;auto=false;setSeason(+b.dataset.s);});
+ document.querySelectorAll('#bar button[data-s]').forEach(b=>b.setAttribute('aria-pressed',+b.dataset.s===i?'true':'false'));}
+document.getElementById('bar').addEventListener('click',e=>{const b=e.target.closest('button[data-s]');if(!b)return;auto=false;setSeason(+b.dataset.s);});
+document.getElementById('bar').addEventListener('click',e=>{const b=e.target.closest('button[data-z]');if(!b)return;const i=+b.dataset.z;if(i===sizeIdx)return;
+ if(items.length&&pendZ!==i){pendZ=i;say('広さを変えると置いたものは片づきます。もう一度押すと変更');setTimeout(()=>{if(pendZ===i)pendZ=-1;},4000);return;}
+ pendZ=-1;setSize(i);});
 let tipT=0,tool=null;
 function say(m){tip.textContent=m;tip.classList.add('show');tipT=2.8;}
-const TG=[[3.6,3.8],[9.8,3.4],[11.4,10.4],[2.4,9.8],[2.8,7.0]];
 function tileAt(x,y){const a=(x-OX)/8,b=(y-OY)/4,gx=(a+b)/2,gy=(b-a)/2;return gx>=0&&gy>=0&&gx<N&&gy<N?[Math.floor(gx),Math.floor(gy)]:null;}
+const onPond=(it,gx,gy)=>it.t==='pond'&&Math.abs(it.gx-gx)<=1&&Math.abs(it.gy-gy)<=1;
 function place(x,y){const t=tileAt(x,y);if(!t)return;
- const at=items.findIndex(it=>it.gx===t[0]&&it.gy===t[1]);
+ const at=items.findIndex(it=>(it.gx===t[0]&&it.gy===t[1])||onPond(it,t[0],t[1]));
  if(tool==='del'){if(at<0)return say('そこには何もない');items.splice(at,1);}
- else{if(at>=0)return say('そこにはもう置いてある');
+ else if(tool==='pond'){
+  if(items.some(it=>it.t==='pond'))return say('池は1つだけ置ける');
+  if(t[0]<1||t[1]<1||t[0]>N-2||t[1]>N-2)return say('池は庭の内側に置く（中心のマスを選ぶ）');
+  if(items.some(it=>Math.abs(it.gx-t[0])<=1&&Math.abs(it.gy-t[1])<=1))return say('ほかのものが近すぎる');
+  if(TG.some(g=>Math.hypot(t[0]+.5-g[0],t[1]+.5-g[1])<2.4))return say('木や岩のそばには置けない');
+  const p=proj(t[0]+.5,t[1]+.5);items.push({t:'pond',gx:t[0],gy:t[1],x:p[0],y:p[1]});}
+ else{if(at>=0)return say(items[at].t==='pond'?'池の上には置けない':'そこにはもう置いてある');
   if(TG.some(g=>Math.hypot(t[0]+.5-g[0],t[1]+.5-g[1])<1.3))return say('木や岩のそばには置けない');
   if(items.length>=14)return say('これ以上は置けない');
   const p=proj(t[0]+.5,t[1]+.5);items.push({t:tool,gx:t[0],gy:t[1],x:p[0],y:p[1]});}
@@ -320,7 +377,7 @@ function place(x,y){const t=tileAt(x,y);if(!t)return;
 document.getElementById('tools').addEventListener('click',e=>{const b=e.target.closest('button[data-t]');if(!b)return;
  tool=tool===b.dataset.t?null:b.dataset.t;
  document.querySelectorAll('#tools button[data-t]').forEach(x=>x.setAttribute('aria-pressed',x.dataset.t===tool?'true':'false'));
- if(tool&&tool!=='del')say('庭のマスをタップして置く');});
+ if(tool&&tool!=='del')say(tool==='pond'?'池は中心のマスをタップ（3×3マス使います）':'庭のマスをタップして置く');});
 cv.addEventListener('pointerdown',e=>{e.preventDefault();const r=cv.getBoundingClientRect(),x=(e.clientX-r.left)/r.width*W,y=(e.clientY-r.top)/r.height*H;
  if(tool){place(x,y);return;}
  let best=null,bd=14;for(const b of birds){const d=Math.hypot(b.x-x,b.y-5-y);if(d<bd){bd=d;best=b;}}
@@ -331,11 +388,15 @@ const seen={},spSeen={},notes=[];let writing=false;
 const bookBtn=document.getElementById('bookBtn'),book=document.getElementById('book'),bList=document.getElementById('bookList'),pen=document.getElementById('pen'),paper=document.getElementById('bookPaper');
 function logEv(sp,pt,kind){const key=sp+pt+kind;if(seen[key])return;seen[key]=1;const n=SPX[sp].n,lines=[];
  if(!spSeen[sp]){spSeen[sp]=1;lines.push(n+'：'+SPX[sp].d);}
- lines.push(NAME[cur]+'　'+n+({ok:'が'+PN[pt]+'にとまった。',look:'が遠くの枝から庭を見て、そのまま飛んでいった。',drink:'が水場で水を飲んだ。',enter:'が巣箱の中に入っていった。'}[kind]));
+ lines.push(NAME[cur]+'　'+n+({ok:pt==='pond'?'が池に降りて、水に浮かんだ。':pt==='shore'?'が池のほとりに降り立った。':'が'+PN[pt]+'にとまった。',look:'が遠くの枝から庭を見て、そのまま飛んでいった。',drink:'が水場で水を飲んだ。',enter:'が巣箱の中に入っていった。'}[kind]));
  notes.push({sp,lines,done:false});bookBtn.classList.add('new');}
+const nowEl=document.getElementById('now');let nowKey='#';
+function updNow(){const set=[...new Set(birds.filter(b=>b.x>-4&&b.x<W+4).map(b=>b.sp))],key=set.join(',');if(key===nowKey)return;nowKey=key;nowEl.textContent='';
+ if(!set.length){nowEl.textContent='今、庭に鳥はいない';return;}
+ for(const sp of set){const q=SPX[sp],c=mk('canvas','nb');c.width=q.w;c.height=q.h;c.getContext('2d').drawImage(q.cv,0,0);const sc=Math.max(1,Math.min(2,Math.floor(30/q.h)));c.style.width=q.w*sc+'px';c.style.height=q.h*sc+'px';const w=mk('span','nbw');w.append(c,q.n+(q.rare?'★':''));nowEl.append(w);}}
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 function mk(tag,cls,txt){const e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e;}
-function entryEl(n){const d=mk('div','entry'),c=mk('canvas','thumb');c.width=16;c.height=13;c.getContext('2d').drawImage(SPX[n.sp].cv,0,0);
+function entryEl(n){const q=SPX[n.sp],d=mk('div','entry'),c=mk('canvas','thumb');c.width=q.w;c.height=q.h;c.getContext('2d').drawImage(q.cv,0,0);const sc=Math.max(1,Math.min(3,Math.floor(56/q.h)));c.style.width=q.w*sc+'px';c.style.height=q.h*sc+'px';
  const t=mk('div','txt');d.append(c,t);return[d,t];}
 async function openBook(){book.hidden=false;bList.textContent='';pen.style.display='none';
  if(!notes.length){bList.append(mk('div','empty','まだ何も書かれていない。庭に何かを置いて、鳥を待ってみよう。'));return;}
@@ -368,11 +429,11 @@ function frame(now){
  for(let i=birds.length-1;i>=0;i--)if(updBird(birds[i],dt))birds.splice(i,1);
  updParts(dt);
  if(tipT>0){tipT-=dt;if(tipT<=0)tip.classList.remove('show');}
- ctx.drawImage(stC,0,0);for(const it of items)if(it.t==='water')drawWater(it.x,it.y,T);drawParts();
- birds.sort((a,b)=>a.y-b.y);for(const b of birds)drawBird(b);
+ ctx.drawImage(stC,0,0);for(const it of items)if(it.t==='water')drawWater(it.x,it.y,T,11,5.5);else if(it.t==='pond')drawWater(it.x,it.y,T,23,11.5);drawParts();
+ updNow();birds.sort((a,b)=>a.y-b.y);for(const b of birds)drawBird(b);
  requestAnimationFrame(frame);
 }
-say('下のボタンで庭に物を置いて、鳥を待ってみよう');resize();build();requestAnimationFrame(frame);
+say('下のボタンで庭に物を置いて、鳥を待ってみよう');setSize(0);requestAnimationFrame(frame);
 })();
 </script>
 </body>
